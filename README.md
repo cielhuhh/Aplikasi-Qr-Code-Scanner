@@ -1,7 +1,7 @@
 # Aplikasi-Qr-Code-Scanner
 # 📷 Flutter QR Code Scanner
 
-Aplikasi Flutter sederhana untuk melakukan scan QR Code menggunakan kamera. Proyek ini dibuat sebagai tugas individu dalam mata kuliah terkait pengembangan aplikasi mobile.
+Aplikasi Flutter sederhana untuk melakukan scan QR Code menggunakan kamera. Proyek ini dibuat sebagai tugas individu dalam mata kuliah terkait Mobile Device Programming.
 
 ## 🎯 Fitur
 
@@ -11,11 +11,4 @@ Aplikasi Flutter sederhana untuk melakukan scan QR Code menggunakan kamera. Proy
 - 💾 Menyimpan image QR code yang di-scan ke gallery
 
 ## 📱 Screenshot
-(Tambahkan gambar contoh hasil scan atau tampilan aplikasi jika ada)
-
-## 🚀 Cara Menjalankan Proyek
-
-1. Clone repositori ini:
-   ```bash
-   git clone https://github.com/cielhuhh/nama-repo.git
-   cd nama-repo
+![image](https://github.com/user-attachments/assets/24072c62-2328-4039-b9b7-9e696bfb6d26)
