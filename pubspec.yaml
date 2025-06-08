@@ -1,0 +1,54 @@
+name: qr_scanner_app
+description: A comprehensive QR Code Scanner Flutter application.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # QR Code Scanner
+  mobile_scanner: ^5.1.1
+  
+  # Permissions
+  permission_handler: ^11.3.1
+  
+  # URL Launcher
+  url_launcher: ^6.2.6
+  
+  # Image Picker
+  image_picker: ^1.1.2
+  
+  # Image Gallery Saver
+  image_gallery_saver: ^2.0.3
+  
+  # QR Code Generator
+  qr_flutter: ^4.1.0
+  
+  # Screenshot
+  screenshot: ^3.0.0
+  
+  # Material Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  # Optional: Add custom fonts or assets here
+  # assets:
+  #   - images/
+  # fonts:
+  #   - family: Roboto
+  #     fonts:
+  #       - asset: fonts/Roboto-Regular.ttf
