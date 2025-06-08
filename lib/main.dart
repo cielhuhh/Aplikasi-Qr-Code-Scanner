@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Tambahan untuk clipboard
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -41,13 +42,14 @@ class _QRScannerHomeState extends State<QRScannerHome>
     facing: CameraFacing.back,
     torchEnabled: false,
   );
-  
+
   String scannedData = '';
   bool isFlashOn = false;
   bool isFrontCamera = false;
   bool hasPermission = false;
   bool isInitialized = false;
   bool isScanning = true;
+  bool isPaused = false; // Tambahan untuk tracking pause state
   ScreenshotController screenshotController = ScreenshotController();
 
   @override
@@ -66,6 +68,7 @@ class _QRScannerHomeState extends State<QRScannerHome>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Fix untuk Error 1: Ganti controller.isStarted dengan controller.value.isInitialized
     if (!controller.value.isInitialized) {
       return;
     }
@@ -76,7 +79,9 @@ class _QRScannerHomeState extends State<QRScannerHome>
       case AppLifecycleState.paused:
         return;
       case AppLifecycleState.resumed:
-        _initializeCamera();
+        if (!isPaused && isScanning) {
+          _initializeCamera();
+        }
         break;
       case AppLifecycleState.inactive:
         break;
@@ -152,6 +157,7 @@ class _QRScannerHomeState extends State<QRScannerHome>
 
     return Stack(
       children: [
+        // Fix untuk Error 2: Tambahkan Screenshot wrapper tanpa parameter yang tidak didukung
         Screenshot(
           controller: screenshotController,
           child: ClipRect(
@@ -167,18 +173,18 @@ class _QRScannerHomeState extends State<QRScannerHome>
         // Overlay untuk menampilkan frame scanning
         _buildScanningOverlay(),
         // Status indicator
-        if (!isScanning)
+        if (isPaused)
           Container(
             color: Colors.black54,
             child: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.pause_circle_filled, 
-                       color: Colors.white, size: 64),
+                  Icon(Icons.pause_circle_filled,
+                      color: Colors.white, size: 64),
                   SizedBox(height: 16),
-                  Text('Scanner Dijeda', 
-                       style: TextStyle(color: Colors.white, fontSize: 18)),
+                  Text('Scanner Dijeda',
+                      style: TextStyle(color: Colors.white, fontSize: 18)),
                 ],
               ),
             ),
@@ -194,8 +200,7 @@ class _QRScannerHomeState extends State<QRScannerHome>
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.camera_alt_outlined, 
-                 size: 100, color: Colors.grey),
+            Icon(Icons.camera_alt_outlined, size: 100, color: Colors.grey),
             SizedBox(height: 24),
             Text(
               'Izin Kamera Diperlukan',
@@ -310,11 +315,11 @@ class _QRScannerHomeState extends State<QRScannerHome>
           SizedBox(height: 12),
           if (hasPermission)
             ElevatedButton.icon(
-              onPressed: isScanning ? _pauseScanning : _resumeScanning,
-              icon: Icon(isScanning ? Icons.pause : Icons.play_arrow),
-              label: Text(isScanning ? 'Pause' : 'Resume'),
+              onPressed: isPaused ? _resumeScanning : _pauseScanning,
+              icon: Icon(isPaused ? Icons.play_arrow : Icons.pause),
+              label: Text(isPaused ? 'Resume' : 'Pause'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: isScanning ? Colors.orange : Colors.green,
+                backgroundColor: isPaused ? Colors.green : Colors.orange,
                 foregroundColor: Colors.white,
               ),
             ),
@@ -421,16 +426,15 @@ class _QRScannerHomeState extends State<QRScannerHome>
   }
 
   void _onDetect(BarcodeCapture capture) {
-    if (!isScanning) return;
-    
+    if (isPaused) return; // Ganti dari isScanning ke isPaused
+
     final barcodes = capture.barcodes;
     for (final barcode in barcodes) {
       if (barcode.rawValue != null && barcode.rawValue!.isNotEmpty) {
         setState(() {
           scannedData = barcode.rawValue!;
-          isScanning = false;
+          isPaused = true; // Pause scanning tapi tidak stop controller
         });
-        controller.stop();
         _showScanResult();
         break;
       }
@@ -461,16 +465,15 @@ class _QRScannerHomeState extends State<QRScannerHome>
 
   void _pauseScanning() {
     setState(() {
-      isScanning = false;
+      isPaused = true;
     });
-    controller.stop();
   }
 
   void _resumeScanning() {
     setState(() {
-      isScanning = true;
+      isPaused = false;
     });
-    controller.start();
+    // Tidak perlu restart controller, hanya ubah flag
   }
 
   Future<void> _pickImageFromGallery() async {
@@ -478,9 +481,16 @@ class _QRScannerHomeState extends State<QRScannerHome>
     final image = await picker.pickImage(source: ImageSource.gallery);
 
     if (image != null) {
-      _showSnackBar(
-        'Fitur scan QR dari gambar belum diimplementasikan (perlu ML Kit)',
-        Colors.orange,
+      // Implementasi sederhana - dalam praktik nyata butuh ML Kit
+      _showDialog(
+        'Info',
+        'Fitur scan QR dari gambar memerlukan implementasi tambahan dengan Google ML Kit atau library sejenis. Untuk saat ini, gunakan kamera langsung.',
+        [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('OK'),
+          ),
+        ],
       );
     }
   }
@@ -492,41 +502,59 @@ class _QRScannerHomeState extends State<QRScannerHome>
     }
 
     try {
-      final qrValidationResult = QrValidator.validate(
-        data: scannedData,
-        version: QrVersions.auto,
-        errorCorrectionLevel: QrErrorCorrectLevel.L,
-      );
+      // Request storage permission
+      final storagePermission = await Permission.storage.request();
+      final photosPermission = await Permission.photos.request();
 
-      if (qrValidationResult.status == QrValidationStatus.valid) {
-        final painter = QrPainter.withQr(
-          qr: qrValidationResult.qrCode!,
-          color: const Color(0xFF000000),
-          emptyColor: const Color(0xFFFFFFFF),
-          gapless: false,
+      if (storagePermission.isGranted || photosPermission.isGranted) {
+        final qrValidationResult = QrValidator.validate(
+          data: scannedData,
+          version: QrVersions.auto,
+          errorCorrectionLevel: QrErrorCorrectLevel.L,
         );
 
-        final picData = await painter.toImageData(200.0);
-        if (picData != null && !kIsWeb) {
-          final result = await ImageGallerySaver.saveImage(
-            picData.buffer.asUint8List(),
-            name: "qr_code_${DateTime.now().millisecondsSinceEpoch}",
+        if (qrValidationResult.status == QrValidationStatus.valid) {
+          final painter = QrPainter.withQr(
+            qr: qrValidationResult.qrCode!,
+            color: const Color(0xFF000000),
+            emptyColor: const Color(0xFFFFFFFF),
+            gapless: false,
           );
 
-          if (result['isSuccess']) {
-            _showSnackBar('QR Code berhasil disimpan ke galeri', Colors.green);
+          final picData =
+              await painter.toImageData(512.0); // Ukuran lebih besar
+          if (picData != null) {
+            final result = await ImageGallerySaver.saveImage(
+              picData.buffer.asUint8List(),
+              name: "qr_code_${DateTime.now().millisecondsSinceEpoch}",
+              quality: 100,
+            );
+
+            if (result['isSuccess'] == true) {
+              _showSnackBar(
+                  'QR Code berhasil disimpan ke galeri', Colors.green);
+            } else {
+              _showSnackBar('Gagal menyimpan QR Code', Colors.red);
+            }
           }
         }
+      } else {
+        _showSnackBar('Izin penyimpanan diperlukan untuk menyimpan gambar',
+            Colors.orange);
       }
     } catch (e) {
       _showSnackBar('Gagal menyimpan QR Code: $e', Colors.red);
     }
   }
 
-  void _copyToClipboard() {
+  void _copyToClipboard() async {
     if (scannedData.isNotEmpty) {
-      // Implement clipboard copy functionality
-      _showSnackBar('Data berhasil disalin', Colors.green);
+      try {
+        await Clipboard.setData(ClipboardData(text: scannedData));
+        _showSnackBar('Data berhasil disalin ke clipboard', Colors.green);
+      } catch (e) {
+        _showSnackBar('Gagal menyalin data', Colors.red);
+      }
     }
   }
 
@@ -549,15 +577,18 @@ class _QRScannerHomeState extends State<QRScannerHome>
             SizedBox(height: 8),
             Container(
               width: double.infinity,
+              constraints: BoxConstraints(maxHeight: 200),
               padding: EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: Colors.grey[100],
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.grey[300]!),
               ),
-              child: SelectableText(
-                scannedData,
-                style: TextStyle(fontFamily: 'monospace'),
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  scannedData,
+                  style: TextStyle(fontFamily: 'monospace'),
+                ),
               ),
             ),
           ],
@@ -572,6 +603,14 @@ class _QRScannerHomeState extends State<QRScannerHome>
               icon: Icon(Icons.open_in_browser),
               label: Text('Buka URL'),
             ),
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _copyToClipboard();
+            },
+            icon: Icon(Icons.copy),
+            label: Text('Copy'),
+          ),
           TextButton.icon(
             onPressed: () {
               Navigator.pop(context);
@@ -597,9 +636,11 @@ class _QRScannerHomeState extends State<QRScannerHome>
   }
 
   bool _isUrl(String text) {
-    return text.toLowerCase().startsWith('http://') || 
-           text.toLowerCase().startsWith('https://') ||
-           text.toLowerCase().startsWith('www.');
+    return text.toLowerCase().startsWith('http://') ||
+        text.toLowerCase().startsWith('https://') ||
+        text.toLowerCase().startsWith('www.') ||
+        RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}')
+            .hasMatch(text);
   }
 
   Future<void> _launchUrl(String url) async {
@@ -608,7 +649,7 @@ class _QRScannerHomeState extends State<QRScannerHome>
       if (!url.toLowerCase().startsWith('http')) {
         finalUrl = 'https://$url';
       }
-      
+
       final uri = Uri.parse(finalUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -630,6 +671,18 @@ class _QRScannerHomeState extends State<QRScannerHome>
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(8),
         ),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  void _showDialog(String title, String content, List<Widget> actions) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: actions,
       ),
     );
   }
@@ -673,7 +726,8 @@ class QrScannerOverlayShape extends ShapeBorder {
       return Path()
         ..moveTo(rect.left, rect.bottom)
         ..lineTo(rect.left, rect.top + borderRadius)
-        ..quadraticBezierTo(rect.left, rect.top, rect.left + borderRadius, rect.top)
+        ..quadraticBezierTo(
+            rect.left, rect.top, rect.left + borderRadius, rect.top)
         ..lineTo(rect.right, rect.top);
     }
 
@@ -689,8 +743,10 @@ class QrScannerOverlayShape extends ShapeBorder {
     final borderWidthSize = width / 2;
     final height = rect.height;
     final borderHeightSize = height / 2;
-    final cutOutWidth = this.cutOutWidth < width ? this.cutOutWidth : width - borderWidth;
-    final cutOutHeight = this.cutOutHeight < height ? this.cutOutHeight : height - borderWidth;
+    final cutOutWidth =
+        this.cutOutWidth < width ? this.cutOutWidth : width - borderWidth;
+    final cutOutHeight =
+        this.cutOutHeight < height ? this.cutOutHeight : height - borderWidth;
 
     final backgroundPaint = Paint()
       ..color = overlayColor
@@ -738,44 +794,66 @@ class QrScannerOverlayShape extends ShapeBorder {
     // Top left corner
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.left - borderOffset, cutOutRect.top + _borderLengthHeight)
+        ..moveTo(cutOutRect.left - borderOffset,
+            cutOutRect.top + _borderLengthHeight)
         ..lineTo(cutOutRect.left - borderOffset, cutOutRect.top + borderRadius)
-        ..quadraticBezierTo(cutOutRect.left - borderOffset, cutOutRect.top - borderOffset,
-            cutOutRect.left + borderRadius, cutOutRect.top - borderOffset)
-        ..lineTo(cutOutRect.left + _borderLength, cutOutRect.top - borderOffset),
+        ..quadraticBezierTo(
+            cutOutRect.left - borderOffset,
+            cutOutRect.top - borderOffset,
+            cutOutRect.left + borderRadius,
+            cutOutRect.top - borderOffset)
+        ..lineTo(
+            cutOutRect.left + _borderLength, cutOutRect.top - borderOffset),
       boxPaint,
     );
 
     // Top right corner
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.right + borderOffset, cutOutRect.top + _borderLengthHeight)
+        ..moveTo(cutOutRect.right + borderOffset,
+            cutOutRect.top + _borderLengthHeight)
         ..lineTo(cutOutRect.right + borderOffset, cutOutRect.top + borderRadius)
-        ..quadraticBezierTo(cutOutRect.right + borderOffset, cutOutRect.top - borderOffset,
-            cutOutRect.right - borderRadius, cutOutRect.top - borderOffset)
-        ..lineTo(cutOutRect.right - _borderLength, cutOutRect.top - borderOffset),
+        ..quadraticBezierTo(
+            cutOutRect.right + borderOffset,
+            cutOutRect.top - borderOffset,
+            cutOutRect.right - borderRadius,
+            cutOutRect.top - borderOffset)
+        ..lineTo(
+            cutOutRect.right - _borderLength, cutOutRect.top - borderOffset),
       boxPaint,
     );
 
     // Bottom left corner
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.left - borderOffset, cutOutRect.bottom - _borderLengthHeight)
-        ..lineTo(cutOutRect.left - borderOffset, cutOutRect.bottom - borderRadius)
-        ..quadraticBezierTo(cutOutRect.left - borderOffset, cutOutRect.bottom + borderOffset,
-            cutOutRect.left + borderRadius, cutOutRect.bottom + borderOffset)
-        ..lineTo(cutOutRect.left + _borderLength, cutOutRect.bottom + borderOffset),
+        ..moveTo(cutOutRect.left - borderOffset,
+            cutOutRect.bottom - _borderLengthHeight)
+        ..lineTo(
+            cutOutRect.left - borderOffset, cutOutRect.bottom - borderRadius)
+        ..quadraticBezierTo(
+            cutOutRect.left - borderOffset,
+            cutOutRect.bottom + borderOffset,
+            cutOutRect.left + borderRadius,
+            cutOutRect.bottom + borderOffset)
+        ..lineTo(
+            cutOutRect.left + _borderLength, cutOutRect.bottom + borderOffset),
       boxPaint,
     );
 
     // Bottom right corner
     canvas.drawPath(
       Path()
-        ..moveTo(cutOutRect.right + borderOffset, cutOutRect.bottom - _borderLengthHeight)
-        ..lineTo(cutOutRect.right + borderOffset, cutOutRect.bottom - borderRadius)
-        ..quadraticBezierTo(cutOutRect.right + borderOffset, cutOutRect.bottom + borderOffset,
-            cutOutRect.right - borderRadius, cutOutRect.bottom + borderOffset)
-        ..lineTo(cutOutRect.right - _borderLength, cutOutRect.bottom + borderOffset),
+        ..moveTo(cutOutRect.right + borderOffset,
+            cutOutRect.bottom - _borderLengthHeight)
+        ..lineTo(
+            cutOutRect.right + borderOffset, cutOutRect.bottom - borderRadius)
+        ..quadraticBezierTo(
+            cutOutRect.right + borderOffset,
+            cutOutRect.bottom + borderOffset,
+            cutOutRect.right - borderRadius,
+            cutOutRect.bottom + borderOffset)
+        ..lineTo(
+            cutOutRect.right - _borderLength, cutOutRect.bottom + borderOffset),
       boxPaint,
     );
   }
